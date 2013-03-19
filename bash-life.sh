@@ -7,6 +7,8 @@ declare -i TICK_RATE_S=1
 declare -i current_lines
 declare -i current_cols
 declare -i current_tick=0
+declare -a current_state
+declare -a next_state
 
 # The following group of variables are actually return values for their corresponding functions. For example
 # get_array_index will set array_index - this is an optimization to save on subshelling
@@ -17,10 +19,8 @@ declare -a surrounding_indexes
 declare -i living_neighbours_count=0
 declare next_cell_state
 
-# The index of the cell in current_state that we're processing
-declare -a current_index
-declare -a current_state
-declare -a next_state
+# Input array when setting current state - see set_current_state_from_input_state()
+declare -a input_state
 
 function log() {
     printf "%s: %s\n" "$(perl -e 'use Time::HiRes qw(time); print time')" "$1" >> bash-life.log
@@ -59,10 +59,8 @@ function update_term_size() {
     current_cols=$(get_term_cols)
 }
 
+# Returns an array index given a line and column (both starting at 1).
 function get_array_index() {
-#    declare -i line=$1
-#    declare -i col=$2
-#    let array_index="(line-1) * (current_cols) + col - 1"
     let array_index="($1-1) * (current_cols) + $2 - 1"
 }
 
@@ -102,19 +100,16 @@ function init_game_state() {
     current_tick=0
     update_term_size
     init_current_state
-#    init_next_state
 }
 
 # Returns, by setting a variable, an array of indexes for cells that surround the given cell.
 # $1 => Line number
 # $2 => Column number
-#function get_surrounding_indexes() {
 function get_living_neighbours_count() {
     declare -i line=$1
     declare -i col=$2
     declare -i index=0
     living_neighbours_count=0
-    #surrounding_indexes=()
     # Yeah we could $(seq), but this should be faster
     for l in $((line-1)) $line $((line+1)); do
 	(( l > 0 && l <= current_lines )) || continue
@@ -123,27 +118,10 @@ function get_living_neighbours_count() {
 	    if (( !(l == line && c == col) )); then
 		get_array_index $l $c
 		[[ ${current_state[$array_index]} == $LIVE_CELL_VALUE ]] && ((++living_neighbours_count))
-		#if (( array_index < ${#current_state[*]} && array_index >= 0 )); then
-		#surrounding_indexes[$index]=$array_index
-		#let index=index+1
-		#fi
 	    fi
 	done
     done
 }
-
-# function get_living_neighbours_count() {
-#     declare -i line=$1
-#     declare -i col=$2
-#     living_neighbours_count=0
-#     #log "getting surrounding indexes for $line $col"
-#     get_surrounding_indexes $line $col
-#     for i in ${surrounding_indexes[@]}; do
-# 	if [[ ${current_state[i]} == $LIVE_CELL_VALUE ]]; then
-# 	    let living_neighbours_count=living_neighbours_count+1
-# 	fi
-#     done
-# }
 
 # Given a cell's current state and its number of living neighbours, determines its next state by applying the
 # following rules (taken from Conway's Game of Life wiki page)
@@ -154,14 +132,13 @@ function get_living_neighbours_count() {
 function get_next_cell_state() {
     declare -i line=$1
     declare -i col=$2
-    #log "getting living neighbours count for $line $col"
     get_living_neighbours_count $line $col
-    #log "have living neighbours count for $line $col"
     
+    get_array_index $line $col
     if (( living_neighbours_count < 2 || living_neighbours_count > 3 )); then
 	# No cell is alive if it has fewer than 2, or greater than 3 living neighbours
 	next_cell_state=$DEAD_CELL_VALUE
-    elif [[ ${current_state[$current_cell_index]} == $LIVE_CELL_VALUE ]]; then
+    elif [[ ${current_state[$array_index]} == $LIVE_CELL_VALUE ]]; then
 	# We know the cell has 2 or 3 live neighbours from the last condition, so if it's alive it survives
 	next_cell_state=$LIVE_CELL_VALUE
     elif (( living_neighbours_count == 3 )); then
@@ -204,28 +181,35 @@ function draw() {
     done
 }
 
-function set_test_game_state() {
-    get_array_index 11 5
-    current_state[$array_index]=$LIVE_CELL_VALUE
-    get_array_index 11 6
-    current_state[$array_index]=$LIVE_CELL_VALUE
-    get_array_index 12 5
-    current_state[$array_index]=$LIVE_CELL_VALUE
-    get_array_index 12 6
-    current_state[$array_index]=$LIVE_CELL_VALUE
-    get_array_index 13 5
-    current_state[$array_index]=$LIVE_CELL_VALUE
-    get_array_index 13 6
-    current_state[$array_index]=$LIVE_CELL_VALUE
+# Parses input_state array (line col pairs) and updates the current_state to match
+function set_current_state_from_input_state() {
+    declare -i i=0
+    while ((index < ${#input_state[*]})); do
+	get_array_index ${input_state[$i]} ${input_state[$((i+1))]}
+	current_state[$array_index]=$LIVE_CELL_VALUE
+	((i+=2))
+    done
 }
 
-> bash-life.log
+function set_current_state_parallels() {
+    input_state=(5 5 5 6 6 5 6 6 7 5 7 6)
+    set_current_state_from_input_state
+}
+
+function set_current_state_cross() {
+    input_state=(5 30 6 29 6 30 6 31 7 30)
+    set_current_state_from_input_state
+    
+}
+
+rm bash-life.log
 init_game_state
-set_test_game_state
+set_current_state_cross
 draw
 while ((1 == 1)); do
     let current_tick=current_tick+1
     update
     draw
-    sleep $TICK_RATE_S
+    # lol, you thought this would run fast enough to need rate limiting
+    #sleep $TICK_RATE_S
 done
