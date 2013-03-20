@@ -1,12 +1,37 @@
 #!/bin/bash
+################################################################################
+# CONWAY'S GAME OF LIFE... IN BASH!
+#
+# Author: Andrew McCluskey
+# Licence: This code is licensed under the MIT Licence as follows:
+#
+# Copyright (c) 2013 Andrew McCluskey <andrew@ajmccluskey.com>
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy of
+# this software and associated documentation files (the "Software"), to deal in
+# the Software without restriction, including without limitation the rights to
+# use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+# the Software, and to permit persons to whom the Software is furnished to do so,
+# subject to the following conditions:
+#  
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#  
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+# FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+# COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+# IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+################################################################################
 
 declare -r DEAD_CELL_VALUE=""
 declare -r LIVE_CELL_VALUE="@"
 declare -i TICK_RATE_S=1
-# Current number of lines/columns - keep track of this in case term resized between ticks
+
 declare -i current_lines
 declare -i current_cols
-declare -i current_tick=0
+declare -i current_tick
 declare -a current_state
 declare -a next_state
 
@@ -23,6 +48,7 @@ declare next_cell_state
 declare -a input_state
 
 function log() {
+    # Dodgy Perl hackery to get a timestamp in ms, which allows us to do some really primitive profiling
     printf "%s: %s\n" "$(perl -e 'use Time::HiRes qw(time); print time')" "$1" >> bash-life.log
 }
 
@@ -75,36 +101,23 @@ function get_col_from_index() {
 }
 
 function init_current_state() {
-    declare -i line=1
-    while ((line < current_lines)); do
-	declare -i col=1
-	while ((col < current_cols)); do
+    for (( line=1; line<=current_lines; ++line )); do
+	for (( col=1; col<=current_cols; ++col )); do
 	    get_array_index $line $col
 	    current_state[$array_index]=$DEAD_CELL_VALUE
-	    ((++col))
-	done
-	((++line))
-    done
-}
-
-function init_next_state() {
-    for line in $(seq 1 $current_lines); do
-	for col in $(seq 1 $current_cols); do
-	    get_array_index $line $col
-	    next_state[$array_index]=$DEAD_CELL_VALUE
 	done
     done
 }
 
 function init_game_state() {
     current_tick=0
+    # Currently we only update the term size once. A possible enhancement would be to update it each tick so
+    # that we can adapt to changing terminal sizes
     update_term_size
     init_current_state
 }
 
 # Returns, by setting a variable, an array of indexes for cells that surround the given cell.
-# $1 => Line number
-# $2 => Column number
 function get_living_neighbours_count() {
     declare -i line=$1
     declare -i col=$2
@@ -150,29 +163,30 @@ function get_next_cell_state() {
     fi
 }
 
+# Work out the next "frame" to display and store it in current_state, ready for displaying
 function update() {
     next_state=()
-    for line in $(seq 1 $current_lines); do
-	for col in $(seq 1 $current_cols); do
+    for (( line=1; line<=$current_lines; ++line )); do
+	for (( col=1; col<=$current_cols; ++col )); do
 	    get_next_cell_state $line $col
 	    get_array_index $line $col
 	    next_state[$array_index]=$next_cell_state
 	done
     done
-    #log "copying next state to current"
-    current_state=()
     current_state=("${next_state[@]}")
 }
 
+# Draw game information on the top line
 function draw_header() {
     print_at_pos 1 1 "Current tick: $current_tick"
 }
 
+# Draw whatever the current state is to screen
 function draw() {
     clear
     draw_header
     #log "drawing state of size ${#current_state[*]}"
-    for index in $(seq 1 ${#current_state[*]}); do
+    for (( index=1; index<=${#current_state[*]}; ++index)); do
 	if [[ ${current_state[$index - 1]} == $LIVE_CELL_VALUE ]]; then
 	    get_line_from_index $((index-1))
 	    get_col_from_index $((index-1))
@@ -184,7 +198,7 @@ function draw() {
 # Parses input_state array (line col pairs) and updates the current_state to match
 function set_current_state_from_input_state() {
     declare -i i=0
-    while ((index < ${#input_state[*]})); do
+    while ((i < ${#input_state[*]})); do
 	get_array_index ${input_state[$i]} ${input_state[$((i+1))]}
 	current_state[$array_index]=$LIVE_CELL_VALUE
 	((i+=2))
@@ -202,9 +216,19 @@ function set_current_state_cross() {
     
 }
 
-rm bash-life.log
+function set_current_state_glider() {
+    input_state=(1 2 2 3 3 1 3 2 3 3)
+    set_current_state_from_input_state
+}
+
+function set_current_state_glider_gun() {
+    input_state=(2 26 3 24 3 26 4 14 4 15 4 22 4 23 4 36 4 37 5 13 5 17 5 22 5 23 5 36 5 37 6 2 6 3 6 12 6 18 6 22 6 23 7 2 7 3 7 12 7 16 7 18 7 19 7 24 7 26 8 12 8 18 8 26 9 13 9 17 10 14 10 15)
+    set_current_state_from_input_state
+}
+
+rm -f bash-life.log
 init_game_state
-set_current_state_cross
+set_current_state_glider_gun
 draw
 while ((1 == 1)); do
     let current_tick=current_tick+1
